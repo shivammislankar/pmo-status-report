@@ -7,6 +7,7 @@ signals, compares with last week's snapshot to show trend, and writes an
 email-ready HTML report.
 
 Usage:
+    python3 status_report.py --demo               # sample report with trends, in reports/demo/
     python3 status_report.py                      # uses data/projects.csv, today
     python3 status_report.py -i my.csv --as-of 2026-11-16
 """
@@ -66,15 +67,20 @@ def normalize_headers(fieldnames):
 def parse_date(s):
     if not s or not str(s).strip():
         return None
-    s = str(s).strip().split(" ")[0].split("T")[0]  # drop any time part
+    s = str(s).strip()
     slash = ["%d/%m/%Y", "%m/%d/%Y", "%d/%m/%y", "%m/%d/%y"]
     if not DAYFIRST:
         slash = [slash[1], slash[0], slash[3], slash[2]]
-    for fmt in ["%Y-%m-%d", "%Y/%m/%d", *slash, "%d-%b-%Y", "%d %b %Y", "%b %d, %Y", "%d-%m-%Y"]:
-        try:
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            pass
+    formats = ["%Y-%m-%d", "%Y/%m/%d", *slash, "%d-%b-%Y", "%d %b %Y", "%d %B %Y",
+               "%b %d, %Y", "%B %d, %Y", "%d-%m-%Y"]
+    # Try the whole value first ("Nov 16, 2026"), then without a trailing time part
+    # ("2026-11-16T10:00:00+0000", "11/16/2026 09:30").
+    for candidate in dict.fromkeys([s, s.split("T")[0], s.split(" ")[0]]):
+        for fmt in formats:
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except ValueError:
+                pass
     raise ValueError(f"Unrecognised date: {s!r}")
 
 
@@ -237,20 +243,9 @@ Amber = &gt;{SCHEDULE_AMBER} pts or overdue milestone. Manual overrides noted.</
 </body></html>"""
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-i", "--input", default=ROOT / "data" / "projects.csv", type=Path)
-    ap.add_argument("-o", "--outdir", default=ROOT / "reports", type=Path)
-    ap.add_argument("--as-of", type=lambda s: parse_date(s), default=date.today())
-    ap.add_argument("--dayfirst", action="store_true", help="dates are DD/MM/YYYY")
-    ap.add_argument("--ai-summary", action="store_true",
-                    help="add a Claude-written executive summary (needs ANTHROPIC_API_KEY)")
-    args = ap.parse_args()
-    global DAYFIRST
-    DAYFIRST = args.dayfirst
-    today = args.as_of
-
-    with open(args.input, newline="", encoding="utf-8-sig") as f:
+def load_projects(path, today):
+    """Read a tracker CSV (flexible headers/dates) and assess every project."""
+    with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         mapping = normalize_headers(reader.fieldnames or [])
         missing = [c for c in REQUIRED if c not in mapping.values()]
@@ -273,23 +268,60 @@ def main():
             except ValueError as err:
                 print(f"  ! Row {i} ({row['project']}): {err} — skipped")
     projects.sort(key=lambda p: (RANK[p["status"]], p["project"]))
+    return projects
 
-    history = ROOT / "history"
-    history.mkdir(exist_ok=True)
+
+def build_report(input_path, today, outdir, history, ai_summary=False):
+    """Assess, compare with the last snapshot, write the HTML report and a new snapshot."""
+    projects = load_projects(input_path, today)
+    history.mkdir(parents=True, exist_ok=True)
     prev, prev_date = load_previous(history, today)
 
-    args.outdir.mkdir(exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
     summary = None
-    if args.ai_summary:
+    if ai_summary:
         from ai_summary import build_facts, generate
-        summary = generate(build_facts(projects, prev, prev_date, today), args.outdir)
-    out = args.outdir / f"status_{today.isoformat()}.html"
+        summary = generate(build_facts(projects, prev, prev_date, today), outdir)
+    out = outdir / f"status_{today.isoformat()}.html"
     out.write_text(render(projects, prev, prev_date, today, summary), encoding="utf-8")
     (history / f"{today.isoformat()}.json").write_text(
         json.dumps({p["project"]: p["status"] for p in projects}, indent=1))
 
-    summary = ", ".join(f"{sum(p['status']==s for p in projects)} {s}" for s in RANK)
-    print(f"Report: {out}\n{summary}")
+    counts = ", ".join(f"{sum(p['status'] == s for p in projects)} {s}" for s in RANK)
+    print(f"Report: {out}\n{counts}")
+    return out, projects
+
+
+DEMO_WEEKS = (date(2026, 11, 9), date(2026, 11, 16))  # sample data is written for these dates
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("-i", "--input", default=ROOT / "data" / "projects.csv", type=Path)
+    ap.add_argument("-o", "--outdir", default=ROOT / "reports", type=Path)
+    ap.add_argument("--history", default=ROOT / "history", type=Path,
+                    help="folder of weekly snapshots used for trend arrows")
+    ap.add_argument("--as-of", type=lambda s: parse_date(s), default=date.today())
+    ap.add_argument("--dayfirst", action="store_true", help="dates are DD/MM/YYYY")
+    ap.add_argument("--ai-summary", action="store_true",
+                    help="add a Claude-written executive summary (needs ANTHROPIC_API_KEY)")
+    ap.add_argument("--demo", action="store_true",
+                    help="build the sample report (two weeks, with trends) in reports/demo/")
+    args = ap.parse_args()
+    global DAYFIRST
+    DAYFIRST = args.dayfirst
+
+    if args.demo:
+        demo_dir = ROOT / "reports" / "demo"
+        demo_hist = demo_dir / "history"
+        for old in demo_hist.glob("*.json"):
+            old.unlink()
+        for week in DEMO_WEEKS:
+            out, _ = build_report(ROOT / "data" / "projects.csv", week, demo_dir, demo_hist, args.ai_summary)
+        print(f"\nDemo ready — open {out} in your browser.")
+        return
+
+    build_report(args.input, args.as_of, args.outdir, args.history, args.ai_summary)
 
 
 if __name__ == "__main__":

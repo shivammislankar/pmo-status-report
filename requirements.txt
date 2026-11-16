@@ -1,0 +1,3 @@
+# Only needed for the optional AI executive summary (ai_summary.py).
+# Everything else uses the Python standard library.
+anthropic>=2.8
