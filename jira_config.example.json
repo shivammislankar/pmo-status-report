@@ -1,0 +1,22 @@
+{
+  "base_url": "https://yourcompany.atlassian.net",
+  "deployment": "cloud",
+  "email": "you@yourcompany.com",
+
+  "jql": "issuetype = Epic AND labels = portfolio AND (statusCategory != Done OR resolved >= -30d)",
+
+  "child_link": "parent",
+  "epic_link_field": "",
+  "progress": "issue_count",
+  "story_points_field": "",
+
+  "fields": {
+    "start_date": "",
+    "budget": "",
+    "spent": "",
+    "rag_status": "",
+    "key_risk": "",
+    "notes": "",
+    "phase": ""
+  }
+}

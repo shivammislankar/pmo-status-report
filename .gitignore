@@ -1,0 +1,11 @@
+jira_config.json
+.env
+history/
+reports/
+email_config.json
+.venv/
+__pycache__/
+*.pyc
+*.eml
+secrets.env
+*.log

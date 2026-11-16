@@ -1,0 +1,12 @@
+{
+  "smtp_host": "smtp.office365.com",
+  "smtp_port": 587,
+  "security": "starttls",
+  "username": "you@yourcompany.com",
+  "from": "PMO Reports <you@yourcompany.com>",
+  "to": ["leadership@yourcompany.com"],
+  "cc": [],
+  "alert_to": ["you@yourcompany.com"],
+  "subject": "Portfolio Status — {date}: {red} Red, {amber} Amber, {green} Green",
+  "attach_html": true
+}
